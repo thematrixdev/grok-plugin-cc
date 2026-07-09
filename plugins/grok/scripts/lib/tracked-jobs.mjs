@@ -195,6 +195,10 @@ export async function runTrackedJob(job, runner, options = {}) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
+    if (existing.status === "cancelled") {
+      // Cancel SIGTERM made the runner reject: keep the cancelled state.
+      throw error;
+    }
     const completedAt = nowIso();
     writeJobFile(job.workspaceRoot, job.id, {
       ...existing,
