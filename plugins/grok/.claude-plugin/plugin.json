@@ -1,6 +1,6 @@
 {
   "name": "grok",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Use Grok from Claude Code to review code or delegate tasks.",
   "author": {
     "name": "y2kbug"
