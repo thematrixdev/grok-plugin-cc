@@ -87,3 +87,21 @@ process.exit(3);
   assert.match(result.error.message, /exited with code 3/);
   assert.match(result.stderr, /boom/);
 });
+
+test("parseStructuredOutput keeps the last object from concatenated JSON", async () => {
+  const { parseStructuredOutput } = await import(
+    `${path.join(ROOT, "plugins", "grok", "scripts", "lib", "grok.mjs")}?t=parse-${Math.random()}`
+  );
+  const raw = '{"verdict":"interim","findings":[]}{"verdict":"needs-attention","findings":[{"title":"x"}]}';
+  const result = parseStructuredOutput(raw);
+  assert.equal(result.parseError, null);
+  assert.equal(result.parsed.verdict, "needs-attention");
+  assert.equal(result.parsed.findings.length, 1);
+
+  const single = parseStructuredOutput('{"verdict":"clean"}');
+  assert.equal(single.parsed.verdict, "clean");
+
+  const garbage = parseStructuredOutput("not json at all");
+  assert.equal(garbage.parsed, null);
+  assert.ok(garbage.parseError);
+});

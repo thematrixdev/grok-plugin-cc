@@ -17,6 +17,35 @@ export function readOutputSchema(schemaPath) {
   return readJsonFile(schemaPath);
 }
 
+// With --json-schema, Grok can emit interim JSON objects while it works and the
+// schema-valid one last, concatenated in the same text stream. Split them and
+// keep the last complete object.
+function parseConcatenatedJson(raw) {
+  const objects = [];
+  let rest = raw.trim();
+  while (rest) {
+    try {
+      objects.push(JSON.parse(rest));
+      break;
+    } catch (error) {
+      // ponytail: relies on V8's "position N" in the error; on mismatch we
+      // just return what we parsed so far.
+      const match = /position (\d+)/.exec(error.message);
+      const position = match ? Number(match[1]) : 0;
+      if (!position) {
+        break;
+      }
+      try {
+        objects.push(JSON.parse(rest.slice(0, position)));
+      } catch {
+        break;
+      }
+      rest = rest.slice(position).trim();
+    }
+  }
+  return objects;
+}
+
 export function parseStructuredOutput(rawOutput, fallback = {}) {
   if (!rawOutput) {
     return {
@@ -35,6 +64,15 @@ export function parseStructuredOutput(rawOutput, fallback = {}) {
       ...fallback,
     };
   } catch (error) {
+    const objects = parseConcatenatedJson(rawOutput);
+    if (objects.length > 0) {
+      return {
+        parsed: objects[objects.length - 1],
+        parseError: null,
+        rawOutput,
+        ...fallback,
+      };
+    }
     return {
       parsed: null,
       parseError: error.message,
