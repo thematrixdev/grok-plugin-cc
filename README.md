@@ -30,7 +30,7 @@ Add the marketplace in Claude Code:
 Install the plugin:
 
 ```
-/plugin install grok@grok-cc
+/plugin install grok@thematrixdev
 ```
 
 Reload plugins, then run:
