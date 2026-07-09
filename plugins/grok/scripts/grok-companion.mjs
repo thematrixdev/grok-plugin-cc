@@ -333,6 +333,9 @@ async function executeReviewRun(request) {
     status: result.status,
     failureMessage: result.error?.message ?? result.stderr
   });
+  // A review that did not produce parsable structured output is a failed
+  // review, even if the Grok turn itself ended cleanly.
+  const exitStatus = parsed.parsed ? result.status : result.status || 1;
   const payload = {
     review: reviewName,
     target,
@@ -355,7 +358,7 @@ async function executeReviewRun(request) {
   };
 
   return {
-    exitStatus: result.status,
+    exitStatus,
     threadId: result.threadId,
     turnId: result.turnId,
     payload,
@@ -837,6 +840,21 @@ async function handleCancel(argv) {
   const { workspaceRoot, job } = resolveCancelableJob(cwd, reference, { env: process.env });
   const existing = readStoredJob(workspaceRoot, job.id) ?? {};
 
+  const grokPid = existing.grokPid ?? job.grokPid ?? null;
+  if (grokPid) {
+    // Grok runs detached in its own process group; kill the whole subtree.
+    try {
+      process.kill(process.platform === "win32" ? grokPid : -grokPid, "SIGTERM");
+      appendLogLine(job.logFile, `Sent SIGTERM to Grok process group ${grokPid}.`);
+    } catch {
+      try {
+        process.kill(grokPid, "SIGTERM");
+        appendLogLine(job.logFile, `Sent SIGTERM to Grok process ${grokPid}.`);
+      } catch {
+        appendLogLine(job.logFile, `Grok process ${grokPid} was already gone.`);
+      }
+    }
+  }
   terminateProcessTree(job.pid ?? Number.NaN);
   appendLogLine(job.logFile, "Cancelled by user.");
 

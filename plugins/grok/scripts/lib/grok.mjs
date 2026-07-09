@@ -160,7 +160,21 @@ export function runGrokTurn(cwd, options = {}) {
       cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
+      // Own process group so cancel can kill the whole Grok subtree.
+      detached: process.platform !== "win32",
     });
+
+    // Detached child would outlive an interrupted companion; reap it on exit.
+    const killChildGroup = () => {
+      if (child.pid) {
+        try {
+          process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGTERM");
+        } catch {
+          // Already gone.
+        }
+      }
+    };
+    process.once("exit", killChildGroup);
 
     let stdoutBuffer = "";
     let stderr = "";
@@ -175,6 +189,7 @@ export function runGrokTurn(cwd, options = {}) {
       message: options.resumeThreadId ? `Resuming Grok session ${options.resumeThreadId}.` : "Starting Grok.",
       phase: "starting",
       threadId,
+      grokPid: child.pid ?? null,
     });
 
     const handleEvent = (event) => {
@@ -230,6 +245,7 @@ export function runGrokTurn(cwd, options = {}) {
     });
 
     child.on("error", (error) => {
+      process.removeListener("exit", killChildGroup);
       resolve({
         status: 1,
         threadId,
@@ -243,6 +259,7 @@ export function runGrokTurn(cwd, options = {}) {
     });
 
     child.on("close", (code) => {
+      process.removeListener("exit", killChildGroup);
       const trailing = stdoutBuffer.trim();
       if (trailing) {
         stdoutBuffer = "";
@@ -252,7 +269,9 @@ export function runGrokTurn(cwd, options = {}) {
           // Non-JSON trailing output: ignore.
         }
       }
-      const completed = stopReason === "EndTurn" || stopReason === "MaxTokens";
+      // EndTurn only: a MaxTokens turn may have half-applied edits and must
+      // not be reported as a successful run.
+      const completed = stopReason === "EndTurn";
       const status = completed ? 0 : (code ?? 1) || 1;
       resolve({
         status,
@@ -265,9 +284,11 @@ export function runGrokTurn(cwd, options = {}) {
         error: completed
           ? null
           : new Error(
-              stopReason
-                ? `Grok turn ended with stop reason "${stopReason}".`
-                : `Grok exited with code ${code}.${stderr ? `\n${stderr.trim()}` : ""}`
+              stopReason === "MaxTokens"
+                ? "Grok turn hit the token limit before finishing; treat the output as incomplete."
+                : stopReason
+                  ? `Grok turn ended with stop reason "${stopReason}".`
+                  : `Grok exited with code ${code}.${stderr ? `\n${stderr.trim()}` : ""}`
             ),
       });
     });

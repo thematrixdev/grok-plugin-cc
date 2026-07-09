@@ -105,3 +105,22 @@ test("parseStructuredOutput keeps the last object from concatenated JSON", async
   assert.equal(garbage.parsed, null);
   assert.ok(garbage.parseError);
 });
+
+test("runGrokTurn treats MaxTokens as an incomplete run and reports grokPid", async () => {
+  const fake = makeFakeGrok(`#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "text", data: "partial" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "end", stopReason: "MaxTokens", sessionId: "sess-max", requestId: "req-max" }) + "\\n");
+`);
+  const { runGrokTurn } = await loadTransport(fake);
+  const updates = [];
+  const result = await runGrokTurn(process.cwd(), {
+    prompt: "long task",
+    onProgress: (update) => updates.push(update)
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.error.message, /token limit/);
+  assert.equal(result.threadId, "sess-max");
+  const starting = updates.find((update) => update.phase === "starting");
+  assert.ok(Number.isInteger(starting.grokPid) && starting.grokPid > 0, "starting progress must carry grokPid");
+});

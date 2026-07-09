@@ -16,6 +16,7 @@ function normalizeProgressEvent(value) {
       phase: typeof value.phase === "string" && value.phase.trim() ? value.phase.trim() : null,
       threadId: typeof value.threadId === "string" && value.threadId.trim() ? value.threadId.trim() : null,
       turnId: typeof value.turnId === "string" && value.turnId.trim() ? value.turnId.trim() : null,
+      grokPid: Number.isInteger(value.grokPid) && value.grokPid > 0 ? value.grokPid : null,
       stderrMessage: value.stderrMessage == null ? null : String(value.stderrMessage).trim(),
       logTitle: typeof value.logTitle === "string" && value.logTitle.trim() ? value.logTitle.trim() : null,
       logBody: value.logBody == null ? null : String(value.logBody).trimEnd()
@@ -27,6 +28,7 @@ function normalizeProgressEvent(value) {
     phase: null,
     threadId: null,
     turnId: null,
+    grokPid: null,
     stderrMessage: String(value ?? "").trim(),
     logTitle: null,
     logBody: null
@@ -71,6 +73,7 @@ export function createJobProgressUpdater(workspaceRoot, jobId) {
   let lastPhase = null;
   let lastThreadId = null;
   let lastTurnId = null;
+  let lastGrokPid = null;
 
   return (event) => {
     const normalized = normalizeProgressEvent(event);
@@ -92,6 +95,12 @@ export function createJobProgressUpdater(workspaceRoot, jobId) {
     if (normalized.turnId && normalized.turnId !== lastTurnId) {
       lastTurnId = normalized.turnId;
       patch.turnId = normalized.turnId;
+      changed = true;
+    }
+
+    if (normalized.grokPid && normalized.grokPid !== lastGrokPid) {
+      lastGrokPid = normalized.grokPid;
+      patch.grokPid = normalized.grokPid;
       changed = true;
     }
 
@@ -153,6 +162,11 @@ export async function runTrackedJob(job, runner, options = {}) {
 
   try {
     const execution = await runner();
+    const latest = readStoredJobOrNull(job.workspaceRoot, job.id);
+    if (latest?.status === "cancelled") {
+      // Cancelled while running: keep the cancelled state, do not overwrite.
+      return execution;
+    }
     const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
     const completedAt = nowIso();
     writeJobFile(job.workspaceRoot, job.id, {
